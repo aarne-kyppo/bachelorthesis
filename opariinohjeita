@@ -1,0 +1,1 @@
+%manager ALL=NOPASSWD: /usr/sbin/adduser ... Lisää /etc/sudoers

@@ -1,0 +1,165 @@
+#from servicebase import ServiceBase
+#from servicefield import ServiceField
+#from django import forms
+#from django.db import connection
+#from django.conf import settings
+#from updatefunctions import updateStateField
+#STATES = (
+#        ('d','disabled'),
+        ('l','locked'),
+        ('a','active')
+    )
+class PostgreSQL(ServiceBase):
+    servicetype = "postgresql"
+    error_prefix = "PostgreSQLError"
+    def __init__(self):
+        self.default_database = settings.DATABASES['default']['NAME']
+        self.fields = (ServiceField("MySQL","mysql",self,forms.ChoiceField(choices=STATES),updateStateField,forms.BooleanField(label="MySQL")),)
+    
+    def initServiceToUser(self,request,user,**kw):
+        
+        cur = connection.cursor()
+        try:
+            username_dotless = user.username.replace(".","_")
+            #Check if database for username exists
+            cur.execute("SHOW DATABASES")
+            databases = cur.fetchall()
+            
+            if username_dotless in databases:
+                messages.error(request,"MySQLError: Database for user is already created")
+                return False
+            else:
+                #Making database for user, create mysql account and granting rigths to user.
+                try:
+                    cur.execute("USE mysql")
+                    cur.execute("CREATE DATABASE %s" % (username_dotless))
+                    try:
+                        cur.execute("CREATE USER '%s'@ IDENTIFIED BY '%s'" % (username_dotless,passwd))
+                        try:   
+                            cur.execute("GRANT ALL PRIVILEGES ON %s.* TO '%s'@" % (username_dotless,username_dotless))
+                            cur.execute("FLUSH PRIVILEGES")
+                        except IntegrityError as ie:
+                            cur.execute("DROP USER USER '%s'@'" % (username_dotless))
+                            cur.execute("DROP DATABASE %s" % (username_dotless))
+                            cur.execute("USE %s" % (self.default_database))
+                            messages.error(request,"MySQLError: Failed to grant privileges for user to database")
+                            return False
+                    
+                    except IntegrityError as ie:
+                        cur.execute("DROP DATABASE %s" % (username_dotless))
+                        cur.execute("USE %s" % (self.default_database))
+                        messages.error(request,"MySQLError: Failed to create mysql-user.")
+                        return False
+                
+                except IntegrityError as ie:
+                    cur.execute("USE %s" % (self.default_database))
+                    messages.error(request,"MySQLError: Failed to create database.")
+                    return False
+                cur.execute("USE %s" % (self.default_database))
+            mysql = MySQL()
+            tmp = Service.objects.create(user=user,servicetype=mysql.getServiceType(),state='a')
+        finally:
+            cur.execute("USE %s" % (self.default_database))
+            cur.close()
+        messages.success(request,"MySQL initialized for user.")
+        return True
+    
+    def lockServiceFromUser(self,request,user):
+        username = user.username.replace(".","_")
+        cur = connection.cursor()
+        cur.execute("USE mysql")
+        cur.execute("SHOW GRANTS FOR '%s'@" % (username))
+        if len(cur.fetchall()) < 2:
+            messages.success(request,"MySQL service has been locked from user")
+            cur.execute("USE %s" % (self.default_database))
+        else:    
+            
+            try:
+                
+                try:
+                    cur.execute("REVOKE ALL PRIVILEGES ON %s.* FROM '%s'@" %(username,username))
+                    messages.success(request,"MySQL service has been locked from user")
+                
+                except IntegrityError:
+                    cur.execute("USE %s" % (self.default_database))
+                    messages.error(request,"MySQLError: Failed to revoke privileges.")
+            finally:
+                cur.execute("USE %s" % (self.default_database))
+                cur.close()
+        mysql = MySQL()
+        tmp = Service.objects.filter(user=user,servicetype=mysql.getServiceType())[0]
+        tmp.state='l'
+        tmp.save()
+        sendInfoMaterial(self,"Your MySQL-service has been locked","",user)
+        
+    def unlockServiceFromUser(self,request,user):
+        username = user.username.replace(".","_")
+        cur = connection.cursor()
+        try:
+            cur.execute("USE mysql")
+            try:
+                cur.execute("GRANT ALL PRIVILEGES ON %s.* TO '%s'@" % (username,username))
+                messages.success(request,"MySQL service has been enabled for user")
+            except IntegrityError:
+                cur.execute("USE %s" % (self.default_database))
+                messages.error(request,"MySQLError: Failed to grant privileges.")
+        finally:
+            cur.execute("USE %s" % (self.default_database))
+            cur.close()
+        mysql = MySQL()
+        tmp = Service.objects.filter(user=user,servicetype=mysql.getServiceType())[0]
+        tmp.state='a'
+        tmp.save()
+    
+    def resetUsersPassword(self,request,user,password):
+        username = user.username.replace(".","_")
+        cur = connection.cursor()
+        cur.execute("USE mysql")
+        try:
+            cur.execute("SET PASSWORD FOR '%s'@ = PASSWORD('%s')" % (username,password))
+            messages.success(request,"Password for MySQL user successfully changed")
+        except IntegrityError:
+            messages.error(request,"MySQLError: Couldn't change user's password.")
+        finally:
+            cur.close()
+    
+    def disableServiceFromUser(self,request,user):
+        username = user.username.replace(".","_")
+        homedir = '/home/%s' % (user)
+        cur = connection.cursor()
+        
+        try:
+            cd(homedir)
+            password = settings.DATABASES["default"]["PASSWORD"]
+            
+            try:
+                s = mysqldump("-u","root","-p%s" % (password),username)
+                sqldumpfile = open('sqldump.sql','w')
+                for line in s:
+                    sqldumpfile.write(line)
+                cur.execute("USE mysql")
+                
+                try:
+                    cur.execute("DROP DATABASE %s" % (username))
+                    
+                    try:
+                        cur.execute("DROP USER '%s'@" % (username))
+                        mysql = MySQL()
+                        tmp = Service.objects.filter(user=user,servicetype=mysql.getServiceType())[0]
+                        tmp.delete()
+                    
+                    except ErrorReturnCode:
+                        messages.error(request,"Could'nt remove user")
+                
+                except ErrorReturnCode:
+                    messages.error(request,"Could'nt remove user's database.")
+            
+            except ErrorReturnCode:
+                messages.error(request,"MySQLdump failed.")
+        
+        except ErrorReturnCode:
+            messages.error(request,"%s does'nt exist!" % (homedir))
+        
+        finally:
+            cur.execute("USE %s" % (self.default_database))
+            cur.close()

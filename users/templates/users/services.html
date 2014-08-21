@@ -1,0 +1,7 @@
+{% extends "users/index.html" %}
+{% block content %}
+<form action="{% url 'manage_services' %}" method="POST">{% csrf_token %}
+    {{ form.as_p }}
+    <input type="submit" value="Apply"/>
+</form>
+{% endblock %}

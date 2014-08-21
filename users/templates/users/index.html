@@ -1,0 +1,113 @@
+<html>
+    <head>
+        <style>
+            *
+            {
+                margin:0;
+                padding:0;
+            }
+            td.error input
+            {
+                background-color: #E26565;
+            }
+            div.message
+            {
+                max-width: 400px;
+                margin: 7px auto 7px 15px;
+            }
+            div.message p
+            {
+                padding: 7px;
+            }
+            div p.error
+            {
+                background-color: #E26565;
+            }
+            div p.success
+            {
+                background-color: #0ACF00;
+            }
+            #newuser p
+            {
+                margin: 25px auto 25px 0px;
+            }
+            #content
+            {
+                margin-left: 30px;
+            }
+            #linkpanel li a
+            {
+                font-size:20px;
+                display:block;
+                width:200px;
+                text-align: center;
+            }
+            #linkpanel li a:hover
+            {
+                background-color: #F2F5F7;
+            }
+            #linkpanel li
+            {
+                float:left;
+            }
+            #linkpanel
+            {
+                margin-left:auto;
+                margin-right: auto;
+                margin-bottom:40px;
+                padding: 0;
+                background-color: #30B8FC;
+                overflow:hidden;
+                width:800px;
+                box-shadow: 0px 0px 5px black;
+                list-style-type: none;
+            }
+            
+        </style>
+    </head>
+    <body>
+        <div>
+        {% if user.is_authenticated and user.is_superuser %}
+                <ul id="linkpanel">
+                    <li><a href="{% url 'logout' %}">Logout</a></li>
+                    <li><a href="{% url 'createuser' %}">Create new user</a></li>
+                    <li><a href="{% url 'manage_services' %}">Manage services</a></li>
+                    <li><a href="{% url 'index' %}">Index</a></li>
+                </ul>
+        {% if messages%}
+            {% for message in messages%}
+                <div class="message"><p class="{{message.tags}}">{{message}}</p></div>
+            {% endfor %}
+        {% endif %}
+        </div>
+            <div id="content">
+                {% block content %}
+                    <table>
+                        <tr>
+                            {%for header in headers%}
+                                <th>{{header}}</th>
+                            {% endfor%}
+                        </tr>
+                        {% for user in users %}
+                            <tr>
+                                <form action="{% url 'modify_user' %}" method='POST'>
+                                    {% csrf_token %}
+                                    {{user.username}}
+                                    {% for field in user %}
+                                        <td{%if field.errors %} class='error'{%endif%}>{%if field.name == 'username'%}{{field.value}}{%else%}{{field}}{%endif%}</td>
+                                    {% endfor %}
+                                    <td><input type="submit" value="Save"/></td>
+                                </form>
+                                <form action="{% url 'reset_passwords'%}" method="POST">
+                                    {% csrf_token %}
+                                    {{user.username}}
+                                    <td><input type="submit" value="Reset Passwords"/></td>
+                                </form>
+                            </tr>
+                        {% endfor %}
+                    </table>
+                {% endblock %}
+            </div>
+        {% endif %}
+    </body>
+</html>
